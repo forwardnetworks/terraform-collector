@@ -1,0 +1,110 @@
+#!/bin/bash
+# Forward collector bootstrap (Amazon Linux 2023). Rendered by Terraform.
+# Secrets are not in this file; the instance reads them from Secrets Manager.
+set -euo pipefail
+exec > >(tee -a /var/log/fwdcollector-bootstrap.log) 2>&1
+echo "bootstrap start $(date -Is)"
+
+dnf install -y docker python3
+
+# Host networking keeps Docker's 172.17.0.0/16 bridge from shadowing device
+# subnets, so turn the bridge off entirely.
+install -d /etc/docker
+cat >/etc/docker/daemon.json <<'EOF'
+{
+  "bridge": "none",
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "50m", "max-file": "5" }
+}
+EOF
+systemctl enable --now docker
+
+imds_token=$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 300')
+instance_id=$(curl -sS -H "X-aws-ec2-metadata-token: $imds_token" http://169.254.169.254/latest/meta-data/instance-id)
+
+install -d -m 755 /etc/fwdcollector
+cat >/etc/fwdcollector/fwdcollector.conf <<'EOF'
+%{ for k, v in conf ~}
+${k}='${replace(v, "'", "")}'
+%{ endfor ~}
+EOF
+echo "INSTANCE_ID='$instance_id'" >>/etc/fwdcollector/fwdcollector.conf
+
+echo '${helper_b64}' | base64 -d >/usr/local/bin/fwdcollector
+chmod 755 /usr/local/bin/fwdcollector
+
+cat >/etc/systemd/system/fwdcollector.service <<'EOF'
+[Unit]
+Description=Forward Networks collector (Docker)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/bin/fwdcollector prepare
+ExecStart=/usr/local/bin/fwdcollector run
+ExecStop=/usr/bin/docker stop -t 60 fwdcollector
+Restart=always
+RestartSec=30
+TimeoutStartSec=900
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat >/etc/systemd/system/fwdcollector-key-backup.service <<'EOF'
+[Unit]
+Description=Back up the Forward collector encryption key to Secrets Manager
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fwdcollector backup-key
+EOF
+
+cat >/etc/systemd/system/fwdcollector-key-backup.timer <<'EOF'
+[Unit]
+Description=Back up the Forward collector encryption key every 2 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target
+EOF
+
+%{ if auto_upgrade_schedule != "" ~}
+cat >/etc/systemd/system/fwdcollector-upgrade.service <<'EOF'
+[Unit]
+Description=Upgrade the Forward collector image
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fwdcollector upgrade
+EOF
+
+cat >/etc/systemd/system/fwdcollector-upgrade.timer <<'EOF'
+[Unit]
+Description=Scheduled Forward collector upgrade
+
+[Timer]
+OnCalendar=${auto_upgrade_schedule}
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+%{ endif ~}
+
+systemctl daemon-reload
+systemctl enable --now fwdcollector-key-backup.timer
+%{ if auto_upgrade_schedule != "" ~}
+systemctl enable --now fwdcollector-upgrade.timer
+%{ endif ~}
+systemctl enable fwdcollector.service
+systemctl start --no-block fwdcollector.service
+echo "bootstrap done $(date -Is)"

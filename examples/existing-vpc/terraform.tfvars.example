@@ -1,0 +1,18 @@
+region    = "us-east-1"
+vpc_id    = "vpc-0123456789abcdef0"
+subnet_id = "subnet-0123456789abcdef0" # private subnet with NAT/proxy egress
+
+# 64 GiB instance for Forward's default 32 GiB heap. For a smaller
+# deployment: instance_type = "r6i.xlarge", collector_heap_size_gb = 24.
+instance_type          = "r6i.2xlarge"
+collector_heap_size_gb = 32
+
+tags = {
+  Owner = "network-team"
+}
+
+# Pass the credentials from Forward as environment variables rather than
+# writing them here:
+#   export TF_VAR_collector_token='collector-xxxx:yyyy'
+#   export TF_VAR_quay_username='forwardnetworks+...'
+#   export TF_VAR_quay_password='...'
