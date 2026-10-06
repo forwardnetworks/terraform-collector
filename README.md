@@ -114,8 +114,13 @@ Collector log files are also kept on the host in `/var/log/fwdcollector`.
 
 **Upgrades.** Forward's procedure (back up key, kill, rm, pull, run) is
 `sudo fwdcollector upgrade`. To upgrade on a schedule instead, set
-`auto_upgrade_schedule = "Sun *-*-* 03:00:00"`. To control versions, pin
-`collector_image_tag`.
+`auto_upgrade_schedule = "Sun *-*-* 03:00:00"`.
+
+Image tags are Forward release numbers (`26.9.0-18`, ...), and `latest` follows
+the current release of Forward SaaS. Keep the collector on the same release as
+your Forward instance: track `latest` on fwd.app, or pin `collector_image_tag`
+to your on-premises release and change it when Forward is upgraded (changing
+it rebuilds the instance; the encryption key is restored automatically).
 
 **Rotating the token.** Put the new value in the token secret and restart:
 
@@ -150,5 +155,5 @@ See `variables.tf` for the full list. The ones most deployments set:
 | `private_ip` | — | Fixed IP, if device ACLs allow the collector by address |
 | `collector_image_tag` | `latest` | Pin for controlled upgrades |
 | `auto_upgrade_schedule` | — | systemd `OnCalendar` for scheduled upgrades |
-| `kms_key_arn` | — | Customer-managed KMS key for EBS, secrets and logs |
+| `kms_key_arn` | — | Customer-managed KMS key for EBS, secrets and logs (its key policy must allow the CloudWatch Logs service principal) |
 | `additional_iam_policy_arns` | `[]` | e.g. read-only access if the collector should also collect this AWS account |

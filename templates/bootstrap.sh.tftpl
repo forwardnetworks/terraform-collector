@@ -45,11 +45,13 @@ StartLimitIntervalSec=0
 Type=simple
 ExecStartPre=/usr/local/bin/fwdcollector prepare
 ExecStart=/usr/local/bin/fwdcollector run
-ExecStop=/usr/bin/docker stop -t 60 fwdcollector
+# The image entrypoint does not forward SIGTERM to Java; Forward stops it
+# with docker kill, so do not wait long.
+ExecStop=/usr/bin/docker stop -t 15 fwdcollector
 Restart=always
 RestartSec=30
 TimeoutStartSec=900
-TimeoutStopSec=90
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target

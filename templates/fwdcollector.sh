@@ -56,11 +56,14 @@ pull() {
   creds=$(secret_string "$QUAY_SECRET_ARN") || die "cannot read quay.io credentials from $QUAY_SECRET_ARN"
   user=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["username"])' <<<"$creds")
   pass=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])' <<<"$creds")
-  printf '%s' "$pass" | docker login quay.io -u "$user" --password-stdin >/dev/null \
-    || die "docker login to quay.io failed; check the quay.io credentials"
-  local rc=0
+  # Keep the registry login in RAM only, for the length of the pull.
+  local DOCKER_CONFIG rc=0
+  DOCKER_CONFIG=$(mktemp -d -p /run fwdcollector-docker.XXXXXX)
+  export DOCKER_CONFIG
+  printf '%s' "$pass" | docker login quay.io -u "$user" --password-stdin >/dev/null 2>&1 \
+    || { rm -rf "$DOCKER_CONFIG"; die "docker login to quay.io failed; check the quay.io credentials"; }
   docker pull --quiet "$IMAGE" >/dev/null || rc=$?
-  docker logout quay.io >/dev/null 2>&1 || true
+  rm -rf "$DOCKER_CONFIG"
   if [ $rc -ne 0 ]; then
     docker image inspect "$IMAGE" >/dev/null 2>&1 || die "cannot pull $IMAGE and no local copy exists"
     log "WARNING: pull of $IMAGE failed; starting the copy already on disk"
@@ -178,7 +181,7 @@ cmd_upgrade() {
   fi
   log "new image $after (was ${before:-none}); restarting"
   systemctl restart fwdcollector.service
-  docker image prune -f >/dev/null || true
+  docker image prune -af >/dev/null || true # drop superseded tags too
 }
 
 cmd_status() {
