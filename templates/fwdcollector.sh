@@ -111,7 +111,12 @@ cmd_upgrade() {
   fi
   log "new image $after (was ${before:-none}); restarting"
   systemctl restart fwdcollector.service
-  docker image prune -af >/dev/null || true # drop superseded tags too
+  # Remove only the image just replaced, by ID. A blanket prune would race the
+  # restart: systemctl returns before docker run has a container, so the new
+  # image can look unused for a moment.
+  if [ -n "$before" ]; then
+    docker rmi "$before" >/dev/null 2>&1 || true
+  fi
 }
 
 cmd_status() {

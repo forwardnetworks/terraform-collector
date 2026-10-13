@@ -102,7 +102,7 @@ The Forward provider is not on the Terraform Registry yet, so `terraform init`
 cannot download it by itself. Install its GitHub release once per machine,
 then `terraform init` finds it locally. Nothing else in the workflow changes.
 
-**Linux or macOS** (amd64 or arm64; needs `curl`, `unzip`, `shasum`):
+**Linux or macOS** (amd64 or arm64; needs `curl`, `unzip`, and `shasum` or `sha256sum`):
 
 ```sh
 scripts/install-forward-provider.sh

@@ -7,11 +7,14 @@
 #   VERSION=0.7.1 scripts/install-forward-provider.sh
 #   PLUGIN_DIR=/opt/terraform/plugins scripts/install-forward-provider.sh
 #
-# Linux and macOS, amd64 and arm64. Needs curl, unzip and shasum.
+# Linux and macOS, amd64 and arm64. Needs curl, unzip, and shasum or sha256sum.
 set -euo pipefail
 
 VERSION=${VERSION:-0.7.1}
 PLUGIN_DIR=${PLUGIN_DIR:-$HOME/.terraform.d/plugins}
+# Absolute before the cd below, so a relative PLUGIN_DIR means the caller's.
+mkdir -p "$PLUGIN_DIR"
+PLUGIN_DIR=$(cd "$PLUGIN_DIR" && pwd)
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
@@ -30,7 +33,11 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 curl -fsSLO "$URL/$ZIP"
 curl -fsSLO "$URL/$SUMS"
-grep " $ZIP\$" "$SUMS" | shasum -a 256 -c -
+if command -v shasum >/dev/null; then sha() { shasum -a 256 -c -; }; else sha() { sha256sum -c -; }; fi
+grep " $ZIP\$" "$SUMS" | sha
+# Unpack beside the download, then move into place: a failed unzip leaves
+# no half-installed provider behind.
+unzip -q "$ZIP" -d unpacked
 mkdir -p "$DIR"
-unzip -oq "$ZIP" -d "$DIR"
+mv -f unpacked/* "$DIR"/
 echo "installed forwardnetworks/forward $VERSION in $DIR"
