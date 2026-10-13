@@ -3,7 +3,9 @@
 #
 # Needs the Forward Terraform provider (forwardnetworks/forward) and a Forward
 # login (an API token's access key and secret) that is an org admin or can
-# manage collection sources on a network.
+# manage collection sources on a network. Until the provider is on the
+# Terraform Registry, install it first: ../../scripts/install-forward-provider.sh
+# (see "Install the Forward provider" in the README).
 #
 #   cp terraform.tfvars.example terraform.tfvars   # fill in
 #   export TF_VAR_forward_username='<api token access key>'

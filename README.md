@@ -96,37 +96,62 @@ To build a fresh VPC with a NAT gateway as well, use `examples/new-vpc`.
 2. stores the token in Secrets Manager and starts the collector on EC2,
 3. attaches the collector to the Forward networks listed in `network_ids`.
 
-### Install the Forward provider
+### Install the Forward provider (manual, no registry)
 
-The provider is not on the Terraform Registry yet, so `terraform init` cannot
-download it. Install the release into Terraform's local plugin directory once
-per machine (Linux or macOS; the checksum is checked before anything is
-installed):
+The Forward provider is not on the Terraform Registry yet, so `terraform init`
+cannot download it by itself. Install its GitHub release once per machine,
+then `terraform init` finds it locally. Nothing else in the workflow changes.
+
+**Linux or macOS** (amd64 or arm64; needs `curl`, `unzip`, `shasum`):
 
 ```sh
-VERSION=0.7.1
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')                  # linux or darwin
-ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')   # amd64 or arm64
-URL=https://github.com/forwardnetworks/terraform-provider-forward/releases/download/v$VERSION
-ZIP=terraform-provider-forward_${VERSION}_${OS}_${ARCH}.zip
-DIR=~/.terraform.d/plugins/registry.terraform.io/forwardnetworks/forward/$VERSION/${OS}_${ARCH}
-
-cd "$(mktemp -d)"
-curl -fsSLO "$URL/$ZIP"
-curl -fsSLO "$URL/terraform-provider-forward_${VERSION}_SHA256SUMS"
-grep " $ZIP\$" terraform-provider-forward_${VERSION}_SHA256SUMS | shasum -a 256 -c -
-mkdir -p "$DIR" && unzip -o "$ZIP" -d "$DIR"
+scripts/install-forward-provider.sh
 ```
 
-On Windows, unzip `terraform-provider-forward_0.7.1_windows_amd64.zip` from
-the [release](https://github.com/forwardnetworks/terraform-provider-forward/releases/tag/v0.7.1)
-into `%APPDATA%\terraform.d\plugins\registry.terraform.io\forwardnetworks\forward\0.7.1\windows_amd64\`.
-In CI, run the same commands in the job before `terraform init`.
+It downloads `terraform-provider-forward` v0.7.1 from the
+[release](https://github.com/forwardnetworks/terraform-provider-forward/releases/tag/v0.7.1),
+checks it against the release's SHA-256 sums, and unzips it into
+`~/.terraform.d/plugins/registry.terraform.io/forwardnetworks/forward/0.7.1/<os>_<arch>/`.
+`VERSION=<x.y.z>` installs another release.
 
-`terraform init` then reports `Installed forwardnetworks/forward v0.7.1
-(unauthenticated)`: Terraform does not verify signatures for providers
-installed this way, which is why the commands above check the release's
-SHA-256 sum first.
+**Windows**: download `terraform-provider-forward_0.7.1_windows_amd64.zip`
+from the release and unzip it into
+`%APPDATA%\terraform.d\plugins\registry.terraform.io\forwardnetworks\forward\0.7.1\windows_amd64\`.
+
+**CI runners, or one copy for a team**: install into a shared directory and
+point Terraform at it with a CLI config file. Only the Forward provider comes
+from the directory; everything else still comes from the registry.
+
+```sh
+PLUGIN_DIR=/opt/terraform/plugins scripts/install-forward-provider.sh
+
+cat > /opt/terraform/forward.tfrc <<'EOF'
+provider_installation {
+  filesystem_mirror {
+    path    = "/opt/terraform/plugins"
+    include = ["registry.terraform.io/forwardnetworks/forward"]
+  }
+  direct {
+    exclude = ["registry.terraform.io/forwardnetworks/forward"]
+  }
+}
+EOF
+export TF_CLI_CONFIG_FILE=/opt/terraform/forward.tfrc
+```
+
+**Air-gapped hosts**: run the script on a connected machine with
+`PLUGIN_DIR=./plugins`, copy `./plugins` across, and use the CLI config above
+with its path.
+
+`terraform init` then prints `Installed forwardnetworks/forward v0.7.1
+(unauthenticated)`. That is expected: Terraform verifies signatures only for
+providers it downloads from a registry, which is why the script checks the
+release's SHA-256 sums first. To check the GPG signature too, import the
+release's `terraform-provider-forward_signing_key.asc` and run
+`gpg --verify terraform-provider-forward_0.7.1_SHA256SUMS.sig terraform-provider-forward_0.7.1_SHA256SUMS`.
+
+When the provider is published on the registry, this step goes away and
+`terraform init` downloads it like any other provider.
 
 ### Deploy
 
