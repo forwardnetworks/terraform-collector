@@ -176,13 +176,12 @@ module "forward_collector" {
 
 output "collector" {
   value = {
-    instance_id             = module.forward_collector.instance_id
-    private_ip              = module.forward_collector.private_ip
-    nat_public_ip           = aws_eip.nat.public_ip
-    connect_command         = module.forward_collector.connect_command
-    status_command          = module.forward_collector.status_command
-    log_group               = module.forward_collector.log_group_name
-    customer_key_secret_arn = module.forward_collector.customer_key_secret_arn
-    token_secret_arn        = module.forward_collector.collector_token_secret_arn
+    instance_id      = module.forward_collector.instance_id
+    private_ip       = module.forward_collector.private_ip
+    nat_public_ip    = aws_eip.nat.public_ip
+    connect_command  = module.forward_collector.connect_command
+    status_command   = module.forward_collector.status_command
+    log_group        = module.forward_collector.log_group_name
+    token_secret_arn = module.forward_collector.collector_token_secret_arn
   }
 }

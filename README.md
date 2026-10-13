@@ -3,21 +3,30 @@
 Terraform that runs the Forward Networks collector container
 (`quay.io/forwardnetworks/cloud-collector`) on a single EC2 instance, following
 Forward's Docker install and upgrade procedure and automating the parts that
-are easy to get wrong: keeping the encryption key, sizing the heap, and
-upgrades.
+are easy to get wrong: secrets, sizing the heap, and upgrades. It can also
+create the collector in Forward, so a deployment needs no Forward UI step.
 
 ## Before you start: what you need from Forward
 
-Ask your Forward Networks contact for **both** of these. The deployment cannot
-pull or register the collector without them.
+The deployment cannot pull or register the collector without these:
 
 | Credential | What it is | Where it comes from |
 |---|---|---|
-| **quay.io login** | Username and password of a pull-only robot account for `quay.io/forwardnetworks/cloud-collector` | Forward Networks (support or your account team) |
-| **Collector auth token** | `username:password` string that ties this collector to your Forward organization | Forward UI: **Settings → Collectors**, add a collector and copy its token (or ask Forward) |
+| **quay.io login** | Username and password of a pull-only robot account for `quay.io/forwardnetworks/cloud-collector` | Ask your Forward Networks contact (support or your account team) |
+| **Collector auth token** | `collector-xxxxxxxx:<32 hex>`, the identity this collector uses with your Forward organization | Either Terraform creates it (`examples/end-to-end`, needs a Forward API token that is an org admin or can manage collection sources), or Forward UI: **Settings → Collectors**, add a collector and copy its token |
 
-Treat both as secrets. Terraform stores them in AWS Secrets Manager; they never
+Treat them as secrets. Terraform stores them in AWS Secrets Manager; they never
 appear in EC2 user data.
+
+About the collector token:
+
+- **One token per collector.** It is one collector identity in Forward. Do not
+  run two collectors with the same token; create one per instance.
+- **No expiry.** It stays valid until the collector is deleted in Forward.
+  Rotate by creating a new collector (or `terraform apply -replace` on the
+  `forward_collector` resource in `examples/end-to-end`).
+- **Shown once.** Forward returns the token only when the collector is
+  created; it cannot be read back later.
 
 You also need:
 
@@ -31,7 +40,7 @@ You also need:
  private subnet                         Secrets Manager
 ┌────────────────────────────────┐      ├─ collector token
 │ EC2 (Amazon Linux 2023)        │◄────►├─ quay.io login
-│  systemd: fwdcollector.service │      └─ customer_key.pb backup
+│  systemd: fwdcollector.service │      └─ proxy password (optional)
 │   └─ docker: cloud-collector   │
 │  no inbound rules, SSM access  │──► NAT ──► fwd.app (HTTPS)
 └────────────────────────────────┘──► devices (SSH/SNMP/HTTPS)
@@ -42,13 +51,8 @@ You also need:
   volume, IMDSv2 only.
 - **Security group** with no inbound rules. Shell access is through SSM
   Session Manager; no SSH key or bastion.
-- **Secrets Manager** secrets for the token, the quay.io login and the
-  encryption key backup. The instance role can read only these.
-- **Encryption key backup.** Forward's instructions warn that losing
-  `/collector/private/customer_key.pb` means re-entering every collection
-  secret. The instance copies the key to Secrets Manager as soon as the
-  collector creates it, and restores it before the collector starts on any
-  rebuilt instance.
+- **Secrets Manager** secrets for the token and the quay.io login. The
+  instance role can read only these.
 - **CloudWatch Logs** for the container output, plus alarms that recover the
   instance on hardware failure and reboot it if the OS hangs.
 
@@ -83,6 +87,32 @@ Check **Settings → Collectors** in Forward for the connected status.
 
 To build a fresh VPC with a NAT gateway as well, use `examples/new-vpc`.
 
+## Deploy end to end (no Forward UI step)
+
+`examples/end-to-end` adds the Forward Terraform provider
+(`forwardnetworks/forward`, 0.7.0 or later). One `terraform apply`:
+
+1. creates the collector in Forward (`forward_collector`) and takes its token,
+2. stores the token in Secrets Manager and starts the collector on EC2,
+3. attaches the collector to the Forward networks listed in `network_ids`.
+
+```sh
+cd examples/end-to-end
+cp terraform.tfvars.example terraform.tfvars   # region, VPC, networks, size
+
+export TF_VAR_forward_username='<Forward API token access key>'
+export TF_VAR_forward_password='<Forward API token secret>'
+export TF_VAR_quay_username='forwardnetworks+...'   # from Forward
+export TF_VAR_quay_password='...'                   # from Forward
+
+terraform init
+terraform apply
+```
+
+`terraform destroy` deletes the collector in Forward as well. Forward has no
+detach, so networks it was attached to keep pointing at the deleted collector
+until another one is attached.
+
 ### Keeping secrets out of Terraform state
 
 Values passed as variables end up in Terraform state. To avoid that, create
@@ -105,14 +135,14 @@ On the instance, `fwdcollector` wraps the Docker commands from Forward's guide:
 
 | Command | Does |
 |---|---|
-| `sudo fwdcollector status` | Service state, `docker ps`, key backup state, recent logs |
+| `sudo fwdcollector status` | Service state, `docker ps`, recent logs |
 | `sudo fwdcollector logs -f` | `docker logs -f fwdcollector` |
-| `sudo fwdcollector upgrade` | Back up the key, `docker pull`, restart only if the image changed |
+| `sudo fwdcollector upgrade` | `docker pull`, restart only if the image changed |
 | `sudo fwdcollector restart` | Stop, remove, pull and start the container |
 
 Collector log files are also kept on the host in `/var/log/fwdcollector`.
 
-**Upgrades.** Forward's procedure (back up key, kill, rm, pull, run) is
+**Upgrades.** Forward's procedure (kill, rm, pull, run) is
 `sudo fwdcollector upgrade`. To upgrade on a schedule instead, set
 `auto_upgrade_schedule = "Sun *-*-* 03:00:00"`.
 
@@ -120,14 +150,36 @@ Image tags are Forward release numbers (`26.9.0-18`, ...), and `latest` follows
 the current release of Forward SaaS. Keep the collector on the same release as
 your Forward instance: track `latest` on fwd.app, or pin `collector_image_tag`
 to your on-premises release and change it when Forward is upgraded (changing
-it rebuilds the instance; the encryption key is restored automatically).
+it rebuilds the instance).
 
-**Rotating the token.** Put the new value in the token secret and restart:
+**The encryption key step in Forward's Docker guide.** Older instructions say
+to save `/collector/private/customer_key.pb` before every upgrade. Collectors
+from release 26.7 on no longer create that file: device credentials are
+encrypted on the Forward side. The module therefore does not mount or back up
+a key. If you pin `collector_image_tag` to 26.6 or older, follow Forward's key
+step by hand.
+
+**Upgrading a deployment of this module made before the key backup was
+removed.** The next `terraform apply` rebuilds the instance and deletes the
+key backup secret. On collector 26.7 or later there is no key, so nothing is
+lost. If you pinned 26.6 or older, copy the key out first
+(`docker cp fwdcollector:/collector/private/customer_key.pb .`) and keep it.
+
+**Rotating the token.** Tokens do not expire; rotating means a new collector
+identity. With `examples/end-to-end`, run
+`terraform apply -replace=forward_collector.this`: Forward gets a new
+collector, its token goes to Secrets Manager and the attachments follow the
+new username. The instance reads the token when the collector starts, so then
+run `sudo fwdcollector restart` on it (the old collector is deleted, so until
+then it cannot connect). Without the end-to-end example, add a collector in
+Forward, then put its token in the secret and restart:
 
 ```sh
 aws secretsmanager put-secret-value --secret-id <collector_token_secret_arn> --secret-string 'collector-xxxx:yyyy'
 sudo fwdcollector restart
 ```
+
+Delete the old collector in Forward afterwards.
 
 **Proxy.** If outbound traffic must go through a proxy, set
 `proxy = { host = "proxy.example.com", port = 3128 }` (and `username`,
@@ -135,8 +187,8 @@ sudo fwdcollector restart
 
 ## Destroying
 
-`terraform destroy` schedules the secrets, including the encryption key
-backup, for deletion after `secret_recovery_window_days` (default 30). Within
+`terraform destroy` schedules the secrets for deletion after
+`secret_recovery_window_days` (default 30). Within
 that window a secret can be restored with
 `aws secretsmanager restore-secret`.
 

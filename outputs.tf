@@ -33,11 +33,6 @@ output "quay_secret_arn" {
   value       = local.quay_secret_arn
 }
 
-output "customer_key_secret_arn" {
-  description = "Secret holding the backup of the collector encryption key."
-  value       = aws_secretsmanager_secret.customer_key.arn
-}
-
 output "log_group_name" {
   description = "CloudWatch Logs group for the collector container."
   value       = var.enable_cloudwatch_logs ? aws_cloudwatch_log_group.this[0].name : null

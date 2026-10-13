@@ -170,7 +170,7 @@ variable "quay_secret_arn" {
 }
 
 variable "secret_recovery_window_days" {
-  description = "Days a deleted secret can be restored. Covers the encryption key backup: deleting it means re-entering every collection secret. 0 deletes at once (tests only)."
+  description = "Days a deleted secret can be restored. 0 deletes at once (tests only)."
   type        = number
   default     = 30
 }

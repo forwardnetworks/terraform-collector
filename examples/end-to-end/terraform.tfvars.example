@@ -1,0 +1,16 @@
+region    = "us-east-1"
+vpc_id    = "vpc-0123456789abcdef0"
+subnet_id = "subnet-0123456789abcdef0" # private subnet with NAT/proxy egress
+
+name             = "aws-us-east-1-collector" # collector name shown in Forward
+forward_app_host = "fwd.app"
+network_ids      = ["123456"] # Forward networks to attach; [] for none
+
+instance_type          = "r6i.2xlarge"
+collector_heap_size_gb = 32
+
+# Credentials as environment variables, not in this file:
+#   export TF_VAR_forward_username='<Forward API token access key>'
+#   export TF_VAR_forward_password='<Forward API token secret>'
+#   export TF_VAR_quay_username='forwardnetworks+...'   # from Forward
+#   export TF_VAR_quay_password='...'                   # from Forward

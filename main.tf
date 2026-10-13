@@ -32,11 +32,20 @@ resource "aws_secretsmanager_secret" "collector_token" {
   tags                    = local.tags
 }
 
+# Counted on the ARN alone: the token may come from another resource (e.g.
+# forward_collector) and be unknown until apply.
 resource "aws_secretsmanager_secret_version" "collector_token" {
-  count = var.collector_token_secret_arn == null && var.collector_token != null ? 1 : 0
+  count = var.collector_token_secret_arn == null ? 1 : 0
 
   secret_id     = aws_secretsmanager_secret.collector_token[0].id
   secret_string = var.collector_token
+
+  lifecycle {
+    precondition {
+      condition     = var.collector_token != null
+      error_message = "Set collector_token, or collector_token_secret_arn for a secret you manage yourself."
+    }
+  }
 }
 
 resource "aws_secretsmanager_secret" "quay" {
@@ -50,13 +59,20 @@ resource "aws_secretsmanager_secret" "quay" {
 }
 
 resource "aws_secretsmanager_secret_version" "quay" {
-  count = var.quay_secret_arn == null && var.quay_username != null ? 1 : 0
+  count = var.quay_secret_arn == null ? 1 : 0
 
   secret_id = aws_secretsmanager_secret.quay[0].id
   secret_string = jsonencode({
     username = var.quay_username
     password = var.quay_password
   })
+
+  lifecycle {
+    precondition {
+      condition     = var.quay_username != null && var.quay_password != null
+      error_message = "Set quay_username and quay_password, or quay_secret_arn for a secret you manage yourself."
+    }
+  }
 }
 
 resource "aws_secretsmanager_secret" "proxy_password" {
@@ -76,22 +92,11 @@ resource "aws_secretsmanager_secret_version" "proxy_password" {
   secret_string = var.proxy_password
 }
 
-# The collector generates customer_key.pb, which encrypts the device
-# credentials stored in Forward. The instance writes it here the first time it
-# appears and restores it on every rebuild. Terraform never sets a value.
-resource "aws_secretsmanager_secret" "customer_key" {
-  name_prefix             = "${var.name}/customer-key-"
-  description             = "Backup of the Forward collector encryption key (customer_key.pb). Written by the collector instance. Losing it means re-entering every collection secret."
-  kms_key_id              = var.kms_key_arn
-  recovery_window_in_days = var.secret_recovery_window_days
-  tags                    = local.tags
-}
-
 locals {
   token_secret_arn = coalesce(var.collector_token_secret_arn, try(aws_secretsmanager_secret.collector_token[0].arn, null))
   quay_secret_arn  = coalesce(var.quay_secret_arn, try(aws_secretsmanager_secret.quay[0].arn, null))
   proxy_secret_arn = try(aws_secretsmanager_secret.proxy_password[0].arn, "")
-  read_secret_arns = compact([local.token_secret_arn, local.quay_secret_arn, local.proxy_secret_arn, aws_secretsmanager_secret.customer_key.arn])
+  read_secret_arns = compact([local.token_secret_arn, local.quay_secret_arn, local.proxy_secret_arn])
   log_group_name   = "/forward/${var.name}"
 }
 
@@ -130,12 +135,6 @@ data "aws_iam_policy_document" "collector" {
     sid       = "ReadCollectorSecrets"
     actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
     resources = local.read_secret_arns
-  }
-
-  statement {
-    sid       = "BackUpEncryptionKey"
-    actions   = ["secretsmanager:PutSecretValue"]
-    resources = [aws_secretsmanager_secret.customer_key.arn]
   }
 
   dynamic "statement" {
@@ -221,7 +220,6 @@ locals {
     PROXY_SECRET_ARN = local.proxy_secret_arn
     TOKEN_SECRET_ARN = local.token_secret_arn
     QUAY_SECRET_ARN  = local.quay_secret_arn
-    KEY_SECRET_ARN   = aws_secretsmanager_secret.customer_key.arn
     LOG_GROUP        = var.enable_cloudwatch_logs ? local.log_group_name : ""
   }
 
