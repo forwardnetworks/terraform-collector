@@ -2,14 +2,15 @@
 # token to the AWS deployment, and attach it to the networks it should collect.
 #
 # Needs the Forward Terraform provider (forwardnetworks/forward) and a Forward
-# login (an API token's access key and secret) that is an org admin or can
-# manage collection sources on a network. Until the provider is on the
-# Terraform Registry, install it first: ../../scripts/install-forward-provider.sh
+# login (username and password, or an API token's access key and secret) that
+# is an org admin or can manage collection sources on a network. Until the
+# provider is on the Terraform Registry, install it first with
+# ../../scripts/install-forward-provider.sh
 # (see "Install the Forward provider" in the README).
 #
 #   cp terraform.tfvars.example terraform.tfvars   # fill in
-#   export TF_VAR_forward_username='<api token access key>'
-#   export TF_VAR_forward_password='<api token secret>'
+#   export TF_VAR_forward_username='you@example.com'   # or API token access key
+#   export TF_VAR_forward_password='...'               # or API token secret
 #   export TF_VAR_quay_username='...' TF_VAR_quay_password='...'
 #   terraform init && terraform apply
 
@@ -90,13 +91,13 @@ variable "forward_app_host" {
 }
 
 variable "forward_username" {
-  description = "Forward API token access key (or user name)."
+  description = "Forward username (or API token access key)."
   type        = string
   sensitive   = true
 }
 
 variable "forward_password" {
-  description = "Forward API token secret (or password)."
+  description = "Forward password (or API token secret)."
   type        = string
   sensitive   = true
 }

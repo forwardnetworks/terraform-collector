@@ -8,23 +8,27 @@ create the collector in Forward, so a deployment needs no Forward UI step.
 
 ## Before you start: what you need from Forward
 
-The deployment cannot pull or register the collector without these:
-
 | Credential | What it is | Where it comes from |
 |---|---|---|
+| **Forward login** | A Forward username and password (or an API token's access key and secret) for a user who is an org admin or can manage collection sources | Your Forward account. Terraform uses it to create the collector in Forward and take its token |
 | **quay.io login** | Username and password of a pull-only robot account for `quay.io/forwardnetworks/cloud-collector` | Ask your Forward Networks contact (support or your account team) |
-| **Collector auth token** | `collector-xxxxxxxx:<32 hex>`, the identity this collector uses with your Forward organization | Either Terraform creates it (`examples/end-to-end`, needs a Forward API token that is an org admin or can manage collection sources), or Forward UI: **Settings → Collectors**, add a collector and copy its token |
 
-Treat them as secrets. Terraform stores them in AWS Secrets Manager; they never
-appear in EC2 user data.
+You do not need a collector token: `terraform apply` creates the collector and
+its token for you ([Deploy](#deploy)). To create the collector in the Forward
+UI instead (**Settings → Collectors**, add a collector and copy its token), see
+[Deploy with a collector token from the Forward UI](#deploy-with-a-collector-token-from-the-forward-ui).
 
-About the collector token:
+Treat these as secrets. The collector token and quay.io login go into AWS
+Secrets Manager; they never appear in EC2 user data.
+
+About the collector token (`collector-xxxxxxxx:<32 hex>`, the identity the
+collector uses with your Forward organization):
 
 - **One token per collector.** It is one collector identity in Forward. Do not
   run two collectors with the same token; create one per instance.
 - **No expiry.** It stays valid until the collector is deleted in Forward.
-  Rotate by creating a new collector (or `terraform apply -replace` on the
-  `forward_collector` resource in `examples/end-to-end`).
+  Rotate by creating a new collector (`terraform apply -replace` on the
+  `forward_collector` resource, see [Rotating the token](#operating-the-collector)).
 - **Shown once.** Forward returns the token only when the collector is
   created; it cannot be read back later.
 
@@ -68,26 +72,7 @@ refuses an instance type that is too small.
 | `r6i.xlarge` | 32 GiB | 24 | Smaller networks |
 | `r6i.large` | 16 GiB | 8 | Labs and testing only |
 
-## Deploy into an existing VPC
-
-```sh
-cd examples/existing-vpc
-cp terraform.tfvars.example terraform.tfvars   # region, vpc_id, subnet_id, size
-
-export TF_VAR_collector_token='collector-xxxx:yyyy'   # from Forward
-export TF_VAR_quay_username='forwardnetworks+...'     # from Forward
-export TF_VAR_quay_password='...'                     # from Forward
-
-terraform init
-terraform apply
-```
-
-The collector registers with Forward a few minutes after the instance boots.
-Check **Settings → Collectors** in Forward for the connected status.
-
-To build a fresh VPC with a NAT gateway as well, use `examples/new-vpc`.
-
-## Deploy end to end (no Forward UI step)
+## Deploy
 
 `examples/end-to-end` adds the Forward Terraform provider
 (`forwardnetworks/forward`, 0.7.0 or later). One `terraform apply`:
@@ -153,14 +138,14 @@ release's `terraform-provider-forward_signing_key.asc` and run
 When the provider is published on the registry, this step goes away and
 `terraform init` downloads it like any other provider.
 
-### Deploy
+### Run it
 
 ```sh
 cd examples/end-to-end
 cp terraform.tfvars.example terraform.tfvars   # region, VPC, networks, size
 
-export TF_VAR_forward_username='<Forward API token access key>'
-export TF_VAR_forward_password='<Forward API token secret>'
+export TF_VAR_forward_username='you@example.com'     # or API token access key
+export TF_VAR_forward_password='...'                 # or API token secret
 export TF_VAR_quay_username='forwardnetworks+...'   # from Forward
 export TF_VAR_quay_password='...'                   # from Forward
 
@@ -172,15 +157,42 @@ terraform apply
 detach, so networks it was attached to keep pointing at the deleted collector
 until another one is attached.
 
-### Keeping secrets out of Terraform state
+## Deploy with a collector token from the Forward UI
 
-Values passed as variables end up in Terraform state. To avoid that, create
-the secrets yourself and pass their ARNs instead:
+Without the Forward provider: create the collector in Forward first
+(**Settings → Collectors**, add a collector, copy its token), then pass the
+token in. Into an existing VPC:
+
+```sh
+cd examples/existing-vpc
+cp terraform.tfvars.example terraform.tfvars   # region, vpc_id, subnet_id, size
+
+export TF_VAR_collector_token='collector-xxxx:yyyy'   # from Forward
+export TF_VAR_quay_username='forwardnetworks+...'     # from Forward
+export TF_VAR_quay_password='...'                     # from Forward
+
+terraform init
+terraform apply
+```
+
+The collector registers with Forward a few minutes after the instance boots.
+Check **Settings → Collectors** in Forward for the connected status.
+
+To build a fresh VPC with a NAT gateway as well, use `examples/new-vpc`.
+
+## Keeping secrets out of Terraform state
+
+Values passed as variables end up in Terraform state. To avoid that when
+using the module directly, create the secrets yourself and pass their ARNs
+instead:
 
 ```hcl
 collector_token_secret_arn = "arn:aws:secretsmanager:...:secret:fwd-token"   # plain string user:password
 quay_secret_arn            = "arn:aws:secretsmanager:...:secret:fwd-quay"    # {"username":"...","password":"..."}
 ```
+
+With `examples/end-to-end` the collector token is always in state, because
+Terraform creates it there; keep that state in a protected backend.
 
 ## Operating the collector
 

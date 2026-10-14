@@ -10,7 +10,7 @@ instance_type          = "r6i.2xlarge"
 collector_heap_size_gb = 32
 
 # Credentials as environment variables, not in this file:
-#   export TF_VAR_forward_username='<Forward API token access key>'
-#   export TF_VAR_forward_password='<Forward API token secret>'
+#   export TF_VAR_forward_username='you@example.com'   # or API token access key
+#   export TF_VAR_forward_password='...'               # or API token secret
 #   export TF_VAR_quay_username='forwardnetworks+...'   # from Forward
 #   export TF_VAR_quay_password='...'                   # from Forward
